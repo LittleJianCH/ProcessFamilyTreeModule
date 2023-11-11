@@ -40,14 +40,18 @@ fn print_task(task: &task_struct, indent: usize) {
 }
 
 fn print_ancestors(_task: *const task_struct) {
-    let task = unsafe { _task.as_ref().unwrap() };
-    print_task(task, 0);
+    let mut task = unsafe { _task.as_ref().unwrap() };
 
-    let parent = unsafe { task.real_parent.as_ref() };
+    loop {
+        let parent = unsafe { task.parent.as_ref().unwrap() };
+        // parent couldn't be null here
 
-    if let Some(par) = parent {
-        if par.pid != 0 {
-            print_ancestors(par);
+        print_task(task, 0);
+
+        if parent.pid == 0 {
+            break;
+        } else {
+            task = parent;
         }
     }
 }
