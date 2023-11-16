@@ -7,12 +7,14 @@
 
 void do_list(
     const struct list_head *head,
-    int indent, 
-    void (*func)(const struct task_struct *, int)) 
+    unsigned int indent, 
+    unsigned int bin_vec,
+    void (*func)(const struct task_struct *, unsigned int, unsigned int)) 
 {
-    const struct task_struct *ptr;
+    const struct list_head *ptr;
 
-    list_for_each_entry (ptr, head, sibling) {
-        func(ptr, indent);
+    list_for_each (ptr, head) {
+        const struct task_struct *task = list_entry(ptr, struct task_struct, sibling);
+        func(task, indent + 1, bin_vec | (list_is_head(ptr, head) << indent));
     }
 }

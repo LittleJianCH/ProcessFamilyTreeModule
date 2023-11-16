@@ -9,18 +9,26 @@ extern "C" {
     #[link_name = "do_list"]
     fn do_list(
         ptr: *const list_head, 
-        indent: core::ffi::c_int, 
-        func: extern "C" fn (*const task_struct, core::ffi::c_int)
+        indent: core::ffi::c_uint, 
+        bin_vec: core::ffi::c_uint,
+        func: extern "C" fn (*const task_struct, core::ffi::c_uint, core::ffi::c_uint)
     );
 }
 
 struct ProcessFamilyTreeModule;
 
-fn print_task(task: &task_struct, indent: usize) {
+fn print_task(task: &task_struct, indent: usize, bin_vec: u32) {
     let mut indent_str = Vec::new();
 
     if indent > 0 {
-        for _ in 0..(indent - 1) * 4 {
+        for i in 0..indent - 1{
+            if bin_vec >> i & 1 == 1 {
+                indent_str.try_push(b'|').unwrap();
+            } else {
+                indent_str.try_push(b' ').unwrap();
+            }
+            indent_str.try_push(b' ').unwrap();
+            indent_str.try_push(b' ').unwrap();
             indent_str.try_push(b' ').unwrap();
         }
         
@@ -46,7 +54,7 @@ fn print_ancestors(_task: *const task_struct) {
         let parent = unsafe { task.parent.as_ref().unwrap() };
         // parent couldn't be null here
 
-        print_task(task, 0);
+        print_task(task, 0, 0);
 
         if parent.pid == 0 {
             break;
@@ -57,12 +65,16 @@ fn print_ancestors(_task: *const task_struct) {
 }
 
 extern "C"
-fn print_descendants(_task: *const task_struct, indent: core::ffi::c_int) {
+fn print_descendants(
+    _task: *const task_struct, 
+    indent: core::ffi::c_uint, 
+    bin_vec: core::ffi::c_uint) 
+{
     let task = unsafe { _task.as_ref().unwrap() };
-    print_task(task, indent as usize);
+    print_task(task, indent as usize, bin_vec as u32);
 
     unsafe {
-        do_list(&task.children, indent + 1, print_descendants);
+        do_list(&task.children, indent, bin_vec, print_descendants);
     }
 }
 
@@ -85,7 +97,7 @@ impl kernel::Module for ProcessFamilyTreeModule {
         pr_info!("Print Descendants Starts!\n");
         pr_info!("-----------------------------\n");
 
-        print_descendants(_task, 0);
+        print_descendants(_task, 0, 0);
 
         pr_info!("-----------------------------\n");
         pr_info!("Print Descendants Ends!\n");
