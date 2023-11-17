@@ -15,6 +15,6 @@ void do_list(
 
     list_for_each (ptr, head) {
         const struct task_struct *task = list_entry(ptr, struct task_struct, sibling);
-        func(task, indent + 1, bin_vec | (list_is_head(ptr, head) << indent));
+        func(task, indent + 1, bin_vec | (!list_is_head(ptr->next, head)) << indent);
     }
 }
