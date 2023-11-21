@@ -5,24 +5,35 @@
 use kernel::prelude::*;
 use kernel::bindings::*;
 
-extern "C" {
-    #[link_name = "do_list"]
-    fn do_list(
-        ptr: *const list_head, 
-        indent: core::ffi::c_uint, 
-        bin_vec: core::ffi::c_uint,
-        func: extern "C" fn (*const task_struct, core::ffi::c_uint, core::ffi::c_uint)
-    );
-}
-
 struct ProcessFamilyTreeModule;
 
-fn print_task(task: &task_struct, indent: usize, bin_vec: u32) {
+macro_rules! offset_of {
+    ($struct_type:ty, $field:ident) => {
+        {
+            let instance = core::mem::MaybeUninit::<$struct_type>::uninit();
+            let field_ptr = &(*instance.as_ptr()).$field as *const _;
+            let base_ptr = instance.as_ptr();
+            (field_ptr as usize) - (base_ptr as usize)
+        }
+    };
+}
+
+macro_rules! list_entry {
+    ($ptr:expr, $struct_type:ty, $filed:ident) => {
+        {
+            let offset = offset_of!($struct_type, $filed);
+            let ptr = ($ptr as *const _ as *const u8).offset(-(offset as isize)) as *const $struct_type;
+            ptr.as_ref().unwrap()
+        }
+    };
+}
+
+fn print_task(task: &task_struct, indent: usize, bin_vec: &Vec<bool>) {
     let mut indent_str = Vec::new();
 
     if indent > 0 {
         for i in 0..indent - 1{
-            if bin_vec >> i & 1 == 1 {
+            if bin_vec[i] {
                 indent_str.try_push(b'|').unwrap();
             } else {
                 indent_str.try_push(b' ').unwrap();
@@ -54,7 +65,8 @@ fn print_ancestors(_task: *const task_struct) {
         let parent = unsafe { task.parent.as_ref().unwrap() };
         // parent couldn't be null here
 
-        print_task(task, 0, 0);
+        let v = Vec::new();
+        print_task(task, 0, &v);
 
         if parent.pid == 0 {
             break;
@@ -64,17 +76,22 @@ fn print_ancestors(_task: *const task_struct) {
     }
 }
 
-extern "C"
-fn print_descendants(
-    _task: *const task_struct, 
-    indent: core::ffi::c_uint, 
-    bin_vec: core::ffi::c_uint) 
-{
+fn print_descendants(_task: *const task_struct, indent: usize, bin_vec: &mut Vec<bool>) {
     let task = unsafe { _task.as_ref().unwrap() };
-    print_task(task, indent as usize, bin_vec as u32);
+    print_task(task, indent, bin_vec);
+    
+    let mut child_ptr = unsafe {&*task.children.next};
 
-    unsafe {
-        do_list(&task.children, indent, bin_vec, print_descendants);
+    while !core::ptr::eq(child_ptr, &task.children) {
+        let child_task = unsafe { 
+            list_entry!(child_ptr, task_struct, sibling)
+        };
+
+        bin_vec.try_push(!core::ptr::eq(child_ptr.next, &task.children)).unwrap();
+        print_descendants(child_task, indent + 1, bin_vec);
+        bin_vec.pop();
+        
+        child_ptr = unsafe {&*child_ptr.next};
     }
 }
 
@@ -97,7 +114,8 @@ impl kernel::Module for ProcessFamilyTreeModule {
         pr_info!("Print Descendants Starts!\n");
         pr_info!("-----------------------------\n");
 
-        print_descendants(_task, 0, 0);
+        let mut bin_vec = Vec::new();
+        print_descendants(_task, 0, &mut bin_vec);
 
         pr_info!("-----------------------------\n");
         pr_info!("Print Descendants Ends!\n");
