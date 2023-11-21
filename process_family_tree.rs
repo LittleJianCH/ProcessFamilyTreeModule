@@ -22,10 +22,45 @@ macro_rules! list_entry {
     ($ptr:expr, $struct_type:ty, $filed:ident) => {
         {
             let offset = offset_of!($struct_type, $filed);
-            let ptr = ($ptr as *const _ as *const u8).offset(-(offset as isize)) as *const $struct_type;
-            ptr.as_ref().unwrap()
+            ($ptr as *const u8).offset(-(offset as isize)) as *const $struct_type
         }
     };
+}
+
+// Because of orphan rule, 
+// we have to warp list_head in a struct.
+struct NewListHead(*const list_head);
+
+struct ListHeadIterator {
+    ptr: *const list_head,
+    head: *const list_head,
+}
+
+impl Iterator for ListHeadIterator {
+    type Item = *const list_head;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = unsafe { (*self.ptr).next };
+        if core::ptr::eq(next, self.head) {
+            None
+        } else {
+            self.ptr = next;
+            Some(next)
+        }
+    }
+}
+
+impl IntoIterator for NewListHead {
+    type Item = *const list_head;
+    type IntoIter = ListHeadIterator;
+
+    fn into_iter<'a>(self) -> Self::IntoIter {
+        let p = self.0 as *const _;
+        ListHeadIterator {
+            ptr: p,
+            head: p,
+        }
+    }
 }
 
 fn print_task(task: &task_struct, indent: usize, bin_vec: &Vec<bool>) {
@@ -80,18 +115,15 @@ fn print_descendants(_task: *const task_struct, indent: usize, bin_vec: &mut Vec
     let task = unsafe { _task.as_ref().unwrap() };
     print_task(task, indent, bin_vec);
     
-    let mut child_ptr = unsafe {&*task.children.next};
-
-    while !core::ptr::eq(child_ptr, &task.children) {
+    for child_ptr in NewListHead(&task.children as *const _) {
         let child_task = unsafe { 
-            list_entry!(child_ptr, task_struct, sibling)
+            &*list_entry!(child_ptr, task_struct, sibling)
         };
 
-        bin_vec.try_push(!core::ptr::eq(child_ptr.next, &task.children)).unwrap();
+        let is_last_child = core::ptr::eq(unsafe { (*child_ptr).next }, &task.children);
+        bin_vec.try_push(!is_last_child).unwrap();
         print_descendants(child_task, indent + 1, bin_vec);
         bin_vec.pop();
-        
-        child_ptr = unsafe {&*child_ptr.next};
     }
 }
 
