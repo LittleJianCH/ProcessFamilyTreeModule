@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# This is a sh script to gen a process tree.
+# It will be useful if u test the module in 
+# some enviorments which dont have many processes, like busybox. 
+
 create_process_tree() {
   local depth=$1
   local width=$2
